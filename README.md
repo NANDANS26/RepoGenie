@@ -41,7 +41,7 @@ Whether you're:
 
 ## 🌐 Live Demo
 
-👉 [Try RepoGenie Live →](https://repogenie.vercel.app)
+👉 [Try RepoGenie Live →](https://repo-genie-9m6x.vercel.app/)
 
 ---
 
