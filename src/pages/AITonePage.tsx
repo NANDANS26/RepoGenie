@@ -136,10 +136,6 @@ const AITonePage = () => {
     setAITone({ ...aiTone, template })
   }
 
-  const handleAudienceChange = (audience: typeof aiTone.audience) => {
-    setAITone({ ...aiTone, audience })
-  }
-
   const handleFocusAreaToggle = (area: string) => {
     const updatedAreas = aiTone.focusAreas.includes(area)
       ? aiTone.focusAreas.filter(a => a !== area)
