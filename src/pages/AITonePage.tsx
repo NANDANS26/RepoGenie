@@ -241,34 +241,7 @@ const AITonePage = () => {
           </div>
         </motion.div>
 
-        {/* Target Audience */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="mb-12"
-        >
-          <h2 className="text-2xl font-semibold mb-6">Target Audience</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            {audiences.map((audience) => (
-              <motion.div
-                key={audience.value}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className={`card cursor-pointer text-center transition-all duration-200 ${
-                  aiTone.audience === audience.value
-                    ? 'ring-2 ring-primary-500 bg-primary-900/20'
-                    : 'hover:bg-dark-700'
-                }`}
-                onClick={() => handleAudienceChange(audience.value)}
-              >
-                <audience.icon className="h-6 w-6 text-primary-500 mx-auto mb-2" />
-                <h3 className="font-semibold mb-1">{audience.label}</h3>
-                <p className="text-dark-400 text-xs">{audience.description}</p>
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
+        
 
         {/* Advanced Configuration */}
         <motion.div
