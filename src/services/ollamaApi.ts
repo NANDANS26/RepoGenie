@@ -6,37 +6,93 @@ import type {
 } from '../store/useAppStore';
 import type { EnhancedRepository } from './githubApi';
 
-interface GeminiConfig {
-  apiKey: string;
-  endpoint: string;
+interface OllamaConfig {
+  baseUrl: string;
   model: string;
+  useMockFallback: boolean;
   maxRetries: number;
   retryDelay: number;
   timeout: number;
 }
 
-interface GeminiResponse {
-  candidates?: Array<{
-    content: {
-      parts: Array<{
-        text: string;
-      }>;
-    };
-  }>;
-  error?: {
-    code: number;
-    message: string;
-  };
+interface OllamaChatResponse {
+  message?: { content?: string };
+  error?: string;
 }
 
-// Configuration with fallbacks
-const config: GeminiConfig = {
-  apiKey: import.meta.env.VITE_GEMINI_API_KEY || '',
-  endpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
-  model: 'gemini-2.0-flash',
+const config: OllamaConfig = {
+  baseUrl: (import.meta.env.VITE_OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, ''),
+  model: import.meta.env.VITE_OLLAMA_MODEL || 'phi3:latest',
+  useMockFallback: import.meta.env.VITE_USE_MOCK_AI === 'true',
   maxRetries: 3,
   retryDelay: 1000,
-  timeout: 45000, // Increased timeout for complex analysis
+  timeout: 120000,
+};
+
+/**
+ * Generate structured JSON using a local Ollama model. No cloud API key is required.
+ */
+const generateOllamaText = async (
+  prompt: string,
+  temperature: number,
+  maxTokens: number,
+): Promise<string> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), config.timeout);
+  let response: Response;
+  let data: OllamaChatResponse;
+
+  try {
+    response = await fetch(`${config.baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are RepoGenie, a careful software repository analyst. Return only one valid JSON object matching the schema requested by the user. Do not wrap JSON in Markdown fences and do not invent repository facts.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        stream: false,
+        format: 'json',
+        keep_alive: '5m',
+        options: {
+          temperature,
+          top_p: 0.9,
+          num_predict: maxTokens,
+          num_ctx: 8192,
+        },
+      }),
+      signal: controller.signal,
+    });
+    data = (await response.json().catch(() => ({}))) as OllamaChatResponse;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Ollama timed out after ${config.timeout / 1000} seconds. Check the local model and try again.`);
+    }
+    if (error instanceof TypeError) {
+      throw new Error(`Cannot connect to Ollama at ${config.baseUrl}. Start Ollama and run ollama pull ${config.model}. If the browser reports a CORS error, allow this app's origin in OLLAMA_ORIGINS and restart Ollama.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Ollama API error (${response.status}): ${data.error || response.statusText}`);
+  }
+
+  const generatedText = data.message?.content?.trim();
+  if (!generatedText) {
+    throw new Error('Ollama returned an empty response. Confirm the model is available with ollama list.');
+  }
+
+  return generatedText;
 };
 
 // Cache for storing API responses
@@ -52,88 +108,24 @@ export const generateAIContent = async (
   attempt = 0
 ): Promise<AIContent> => {
   // Check cache first
-  const cacheKey = `${repository.id}-${aiTone.style}-${
-    aiTone.template
-  }-${JSON.stringify(customSections)}-enhanced`;
+  const cacheKey = `${config.model}-${repository.id}-${aiTone.style}-${aiTone.template}-${JSON.stringify(customSections)}-enhanced`;
   
   if (responseCache.has(cacheKey)) {
     return responseCache.get(cacheKey)!;
   }
 
-  // Fallback to mock data if no API key
-  if (!config.apiKey) {
+  if (config.useMockFallback) {
     const mockData = generateAdvancedMockAIContent(repository, aiTone, customSections);
     responseCache.set(cacheKey, mockData);
     return mockData;
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.timeout);
-
-    const response = await fetch(
-      `${config.endpoint}/${config.model}:generateContent?key=${config.apiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: createComprehensivePrompt(
-                    repository,
-                    aiTone,
-                    customSections
-                  ),
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: getTemperatureForTone(aiTone.style),
-            topK: 50,
-            topP: 0.9,
-            maxOutputTokens: 8192,
-            responseMimeType: 'application/json',
-          },
-          safetySettings: [
-            {
-              category: 'HARM_CATEGORY_HARASSMENT',
-              threshold: 'BLOCK_ONLY_HIGH',
-            },
-            {
-              category: 'HARM_CATEGORY_HATE_SPEECH',
-              threshold: 'BLOCK_ONLY_HIGH',
-            },
-          ],
-        }),
-        signal: controller.signal,
-      }
+    const generatedText = await generateOllamaText(
+      createComprehensivePrompt(repository, aiTone, customSections),
+      getTemperatureForTone(aiTone.style),
+      8192,
     );
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(
-        `Gemini API error: ${errorData.error?.message || response.statusText}`
-      );
-    }
-
-    const data: GeminiResponse = await response.json();
-
-    if (data.error) {
-      throw new Error(`Gemini API error: ${data.error.message}`);
-    }
-
-    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!generatedText) {
-      throw new Error('No content generated from Gemini API');
-    }
 
     const parsedContent = parseAdvancedAIResponse(
       generatedText,
@@ -152,10 +144,13 @@ export const generateAIContent = async (
       return generateAIContent(repository, aiTone, customSections, attempt + 1);
     }
 
-    // Fallback to mock data after retries
-    const mockData = generateAdvancedMockAIContent(repository, aiTone, customSections);
-    responseCache.set(cacheKey, mockData);
-    return mockData;
+    if (config.useMockFallback) {
+      const mockData = generateAdvancedMockAIContent(repository, aiTone, customSections);
+      responseCache.set(cacheKey, mockData);
+      return mockData;
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Ollama generation failed after ${attempt + 1} attempt(s): ${detail}`);
   }
 };
 
@@ -566,8 +561,12 @@ const parseAdvancedAIResponse = (
 
     return result;
   } catch (error) {
-    console.error('Error parsing AI response:', error);
-    return generateAdvancedMockAIContent(repository, aiTone, customSections);
+    console.error('Error parsing Ollama response:', error);
+    if (config.useMockFallback) {
+      return generateAdvancedMockAIContent(repository, aiTone, customSections);
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Ollama returned invalid JSON for ${repository.name}: ${detail}`);
   }
 };
 
@@ -953,57 +952,16 @@ export const generateRepositoryInsights = async (
   aiTone: AITone,
   attempt = 0
 ): Promise<any> => {
-  if (!config.apiKey) {
+  if (config.useMockFallback) {
     return generateAdvancedMockInsights(repositories, aiTone);
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.timeout);
-
-    const response = await fetch(
-      `${config.endpoint}/${config.model}:generateContent?key=${config.apiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: createAdvancedInsightsPrompt(repositories, aiTone),
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.7,
-            topK: 50,
-            topP: 0.9,
-            maxOutputTokens: 6144,
-            responseMimeType: 'application/json',
-          },
-        }),
-        signal: controller.signal,
-      }
+    const generatedText = await generateOllamaText(
+      createAdvancedInsightsPrompt(repositories, aiTone),
+      0.7,
+      6144,
     );
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.statusText}`);
-    }
-
-    const data: GeminiResponse = await response.json();
-    const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!generatedText) {
-      throw new Error('No insights generated');
-    }
-
     return JSON.parse(generatedText);
   } catch (error) {
     console.error(`Insights generation attempt ${attempt + 1} failed:`, error);
@@ -1013,7 +971,11 @@ export const generateRepositoryInsights = async (
       return generateRepositoryInsights(repositories, aiTone, attempt + 1);
     }
 
-    return generateAdvancedMockInsights(repositories, aiTone);
+    if (config.useMockFallback) {
+      return generateAdvancedMockInsights(repositories, aiTone);
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Ollama insights generation failed after ${attempt + 1} attempt(s): ${detail}`);
   }
 };
 
@@ -1170,7 +1132,7 @@ export const generateBatchAIContent = async (
   aiTone: AITone,
   customSections: CustomSection[] = [],
   onProgress?: (completed: number, total: number) => void,
-  concurrency = 2 // Reduced for more thorough analysis
+  concurrency = 1 // Local models are served sequentially to reduce memory pressure
 ): Promise<Record<string, AIContent>> => {
   const results: Record<string, AIContent> = {};
   const queue = [...repositories];
@@ -1192,11 +1154,12 @@ export const generateBatchAIContent = async (
       );
     } catch (error) {
       console.error(`Failed to generate content for ${repo.name}:`, error);
-      results[repo.id.toString()] = generateAdvancedMockAIContent(
-        repo,
-        aiTone,
-        customSections
-      );
+      if (config.useMockFallback) {
+        results[repo.id.toString()] = generateAdvancedMockAIContent(repo, aiTone, customSections);
+      } else {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to analyze ${repo.name} with Ollama: ${detail}`);
+      }
     } finally {
       completed++;
       activeWorkers--;
