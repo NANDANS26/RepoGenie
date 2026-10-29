@@ -29,7 +29,7 @@ Whether you're:
 ### ✅ Features:
 - 🔍 Fetches all your public GitHub repositories automatically
 - ✅ Pick projects you want to include
-- ✨ Auto-generates summaries, features, SWOT, and use-cases using **Gemini API**
+- ✨ Auto-generates summaries, features, SWOT, and use-cases using a local **Ollama Phi-3 model**
 - 💬 Choose a tone: Corporate, Geeky, Friendly, or Startup-style
 - 📊 Adds stunning charts (commits, languages, stars, forks)
 - 🎨 Choose from elegant design templates
@@ -52,7 +52,7 @@ Whether you're:
 | Frontend     | React, Vite, TailwindCSS, Zustand        |
 | Charts       | Recharts / Chart.js                     |
 | Backend      | Firebase Functions (Optional)           |
-| AI Integration | Gemini API (Google AI)                |
+| AI Integration | Ollama local HTTP API (Phi-3)         |
 | GitHub Data  | GitHub REST API                         |
 | PDF Export   | Puppeteer                               |
 | DOCX Export  | docx (npm library)                      |
@@ -82,12 +82,14 @@ Create a `.env` file in the root folder and add:
 
 ```env
 VITE_GITHUB_API_KEY=your_github_personal_access_token
-VITE_GEMINI_API_KEY=your_gemini_api_key
+VITE_OLLAMA_BASE_URL=http://localhost:11434
+VITE_OLLAMA_MODEL=phi3:latest
+VITE_USE_MOCK_AI=false
 ```
 
-> 💡 Don’t have keys yet?
-- [Generate GitHub Token](https://github.com/settings/tokens)
-- [Access Gemini API](https://makersuite.google.com/app)
+> The GitHub token is used only for GitHub API access. Ollama runs locally and does not require an LLM API key.
+- [Create a GitHub token](https://github.com/settings/tokens)
+- [Install Ollama](https://ollama.com/download)
 
 ### 4. 🧪 Run the App
 
@@ -95,9 +97,28 @@ VITE_GEMINI_API_KEY=your_gemini_api_key
 npm run dev
 ```
 
-Visit [http://localhost:5173](http://localhost:5173)
+Visit [http://localhost:3000](http://localhost:3000)
 
 ---
+
+### 5. 🤖 Set Up the Local Phi-3 Model
+
+RepoGenie sends repository-analysis prompts to your local Ollama server. No cloud LLM API key or paid LLM API is used.
+
+```bash
+ollama pull phi3:latest
+ollama list
+```
+
+Keep Ollama running while using RepoGenie. The default API URL is `http://localhost:11434`; change `VITE_OLLAMA_BASE_URL` if your Ollama server uses another local URL. Set `VITE_OLLAMA_MODEL` to the exact tag shown by `ollama list`.
+
+**Privacy boundary:** AI prompts and generated repository analysis go to the configured Ollama endpoint. With the default local URL, model inference runs on your machine. RepoGenie still contacts GitHub to fetch repository metadata and contents. Do not point the app at an untrusted Ollama endpoint.
+
+**Troubleshooting:**
+- If connection fails, start Ollama and run `ollama pull phi3:latest`.
+- If the browser reports CORS, configure Ollama's `OLLAMA_ORIGINS` to allow the exact RepoGenie origin (for local Vite, `http://localhost:3000`) and restart Ollama.
+- If generation times out or JSON is malformed, try fewer repositories per batch or a model with more available memory.
+- Mock output is disabled by default. Set `VITE_USE_MOCK_AI=true` only when deliberately testing the UI without a running model.
 
 ## 🛠 Folder Structure
 
@@ -140,7 +161,7 @@ Visit [http://localhost:5173](http://localhost:5173)
 - 🌐 Export to live portfolio website
 - 🧑‍🤝‍🧑 Team collaboration & roles
 - ☁️ Upload to Google Drive / Share via URL
-- 🧠 Gemini-powered Q&A assistant (Repo insights)
+- 🧠 Local Ollama-powered Q&A assistant (planned)
 
 ---
 
@@ -154,7 +175,7 @@ Please feel free to submit Issues and Pull Requests.
 ## 🙌 Acknowledgements
 
 - [GitHub REST API](https://docs.github.com/en/rest)
-- [Gemini AI](https://ai.google.dev)
+- [Ollama](https://ollama.com)
 - [Tailwind CSS](https://tailwindcss.com)
 - [PptxGenJS](https://gitbrent.github.io/PptxGenJS/)
 - [html2pdf & Puppeteer](https://github.com/eKoopmans/html2pdf)

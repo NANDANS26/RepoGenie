@@ -29,7 +29,7 @@ import {
   Activity
 } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
-import { generateAIContent, generateBatchAIContent } from '../services/geminiApi'
+import { generateAIContent, generateBatchAIContent } from '../services/ollamaApi'
 import { fetchEnhancedRepositoryData } from '../services/githubApi'
 import Button from '../components/Button'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -107,7 +107,7 @@ const AIPreviewPage = () => {
       setAnalysisPhase('Analysis complete!')
     } catch (error) {
       console.error('Failed to generate AI content:', error)
-      setAnalysisPhase('Analysis failed - using fallback data')
+      setAnalysisPhase(`Ollama analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsGeneratingAI(false)
       setGenerationProgress(100)
@@ -157,15 +157,17 @@ const AIPreviewPage = () => {
     if (repo) {
       setIsGeneratingAI(true)
       setAnalysisPhase(`Regenerating analysis for ${repo.name}...`)
+      let failureMessage = ''
       try {
         const enhancedData = enhancedRepositoryData[repoId] || repo
         const content = await generateAIContent(enhancedData, aiTone, documentFormat.customSections)
         setAIContent(repoId, content)
       } catch (error) {
         console.error(`Failed to regenerate content for ${repo.name}:`, error)
+        failureMessage = error instanceof Error ? error.message : 'Unknown error'
       }
       setIsGeneratingAI(false)
-      setAnalysisPhase('')
+      setAnalysisPhase(failureMessage ? `Ollama generation failed: ${failureMessage}` : '')
     }
   }
 
@@ -179,6 +181,7 @@ const AIPreviewPage = () => {
     setIsGeneratingAI(true)
     setGenerationProgress(0)
     setAnalysisPhase('Regenerating selected repositories...')
+    let failureMessage = ''
 
     try {
       const enhancedRepos = reposToRegenerate.map(repo => 
@@ -200,10 +203,11 @@ const AIPreviewPage = () => {
       })
     } catch (error) {
       console.error('Failed to regenerate batch content:', error)
+      failureMessage = error instanceof Error ? error.message : 'Unknown error'
     } finally {
       setIsGeneratingAI(false)
       setSelectedRepos(new Set())
-      setAnalysisPhase('')
+      setAnalysisPhase(failureMessage ? `Ollama generation failed: ${failureMessage}` : '')
     }
   }
 
